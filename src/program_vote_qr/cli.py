@@ -50,7 +50,10 @@ def qr_overlay(page_width: float, page_height: float, vote: VoteCode, x: float, 
         raise ValueError("QR size must be positive")
 
     qr = segno.make(vote.url, error="h")
-    module_count = qr.symbol_size(scale=1)[0]
+    # Segno's matrix excludes the QR quiet zone. Reserve the standard four
+    # light modules on every side so printed codes remain easy to scan.
+    matrix = qr.matrix
+    module_count = len(matrix) + 8
     module_size = size / module_count
 
     from io import BytesIO
@@ -60,13 +63,12 @@ def qr_overlay(page_width: float, page_height: float, vote: VoteCode, x: float, 
     canvas.setFillColorRGB(1, 1, 1)
     canvas.rect(x, y, size, size, fill=1, stroke=0)
     canvas.setFillColorRGB(0, 0, 0)
-    matrix = qr.matrix
     for row_index, row in enumerate(matrix):
         for column_index, dark in enumerate(row):
             if dark:
                 canvas.rect(
-                    x + column_index * module_size,
-                    y + (len(matrix) - 1 - row_index) * module_size,
+                    x + (column_index + 4) * module_size,
+                    y + (len(matrix) - row_index + 3) * module_size,
                     module_size,
                     module_size,
                     fill=1,
