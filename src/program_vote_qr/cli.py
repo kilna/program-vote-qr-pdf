@@ -17,6 +17,23 @@ class VoteCode:
     used: bool
 
 
+@dataclass(frozen=True)
+class Placement:
+    x: float
+    y: float
+    size: float
+
+
+def parse_placement(value: str) -> Placement:
+    try:
+        x, y, size = (float(part.strip()) for part in value.split(","))
+    except ValueError as error:
+        raise ValueError(f"Placement must be X,Y,SIZE; got {value!r}") from error
+    if size <= 0:
+        raise ValueError("QR size must be positive")
+    return Placement(x=x, y=y, size=size)
+
+
 def read_codes(path: Path, include_used: bool = False) -> list[VoteCode]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         rows = csv.DictReader(handle)
@@ -40,14 +57,14 @@ def read_codes(path: Path, include_used: bool = False) -> list[VoteCode]:
     return result
 
 
-def qr_overlay(page_width: float, page_height: float, vote: VoteCode, x: float, y: float, size: float, label: bool) -> bytes:
-    if x < 0 or y < 0 or x + size > page_width or y + size > page_height:
+def qr_overlay(page_width: float, page_height: float, vote: VoteCode, placement: Placement, ballot_number: int, label: bool) -> bytes:
+    x, y, size = placement.x, placement.y, placement.size
+    label_height = max(18, size / 5) if label else 0
+    if x < 0 or y - label_height < 0 or x + size > page_width or y + size > page_height:
         raise ValueError(
             f"QR at ({x}, {y}) with size {size} does not fit page "
             f"({page_width:g} x {page_height:g})"
         )
-    if size <= 0:
-        raise ValueError("QR size must be positive")
 
     qr = segno.make(vote.url, error="h")
     # Segno's matrix excludes the QR quiet zone. Reserve the standard four
@@ -76,8 +93,11 @@ def qr_overlay(page_width: float, page_height: float, vote: VoteCode, x: float, 
                 )
 
     if label:
-        canvas.setFont("Helvetica", max(6, min(12, size / 10)))
-        canvas.drawCentredString(x + size / 2, max(2, y - size / 12), vote.code)
+        font_size = max(6, min(11, size / 10))
+        canvas.setFont("Helvetica-Bold", font_size)
+        canvas.drawCentredString(x + size / 2, y - font_size - 2, f"Ballot {ballot_number:03d}")
+        canvas.setFont("Helvetica", font_size)
+        canvas.drawCentredString(x + size / 2, y - (font_size * 2) - 4, f"Code: {vote.code}")
     canvas.save()
     return output.getvalue()
 
@@ -86,12 +106,15 @@ def create_pdf(
     template: Path,
     codes: list[VoteCode],
     output: Path,
-    x: float,
-    y: float,
-    size: float,
+    placements: list[Placement],
     template_page: int = 0,
     label: bool = True,
+    start_ballot_number: int = 1,
 ) -> None:
+    if not placements:
+        raise ValueError("At least one placement is required")
+    if start_ballot_number < 1:
+        raise ValueError("Starting ballot number must be positive")
     source = PdfReader(str(template))
     if not source.pages:
         raise ValueError("Template PDF has no pages")
@@ -106,12 +129,15 @@ def create_pdf(
 
     from io import BytesIO
 
-    for vote in codes:
-        overlay_reader = PdfReader(BytesIO(qr_overlay(width, height, vote, x, y, size, label)))
+    for page_start in range(0, len(codes), len(placements)):
+        page_codes = codes[page_start:page_start + len(placements)]
         # Load a fresh template page because merge_page mutates its target.
         page = PdfReader(str(template)).pages[template_page]
         writer.add_page(page)
-        writer.pages[-1].merge_page(overlay_reader.pages[0])
+        for slot, vote in enumerate(page_codes):
+            ballot_number = start_ballot_number + page_start + slot
+            overlay_reader = PdfReader(BytesIO(qr_overlay(width, height, vote, placements[slot], ballot_number, label)))
+            writer.pages[-1].merge_page(overlay_reader.pages[0])
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("wb") as handle:
@@ -123,12 +149,17 @@ def parser() -> argparse.ArgumentParser:
     parser.add_argument("--template", type=Path, required=True, help="Source program-back PDF")
     parser.add_argument("--codes", type=Path, required=True, help="CSV downloaded from the voting admin")
     parser.add_argument("--output", type=Path, required=True, help="Output personalized PDF")
-    parser.add_argument("--x", type=float, required=True, help="QR left position in PDF points")
-    parser.add_argument("--y", type=float, required=True, help="QR bottom position in PDF points")
-    parser.add_argument("--size", type=float, required=True, help="QR size in PDF points")
+    parser.add_argument(
+        "--placement",
+        action="append",
+        metavar="X,Y,SIZE",
+        required=True,
+        help="QR placement in PDF points; repeat for each slot on a template page",
+    )
     parser.add_argument("--template-page", type=int, default=0, help="Zero-based source page to use")
     parser.add_argument("--include-used", action="store_true", help="Include codes marked used in the CSV")
     parser.add_argument("--no-label", action="store_true", help="Do not print the human-readable code below the QR")
+    parser.add_argument("--start-ballot-number", type=int, default=1, help="Number printed on the first ballot")
     return parser
 
 
@@ -140,19 +171,20 @@ def main() -> None:
         raise SystemExit(f"Codes CSV not found: {args.codes}")
     try:
         codes = read_codes(args.codes, include_used=args.include_used)
+        placements = [parse_placement(value) for value in args.placement]
         create_pdf(
             args.template,
             codes,
             args.output,
-            args.x,
-            args.y,
-            args.size,
+            placements,
             template_page=args.template_page,
             label=not args.no_label,
+            start_ballot_number=args.start_ballot_number,
         )
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from error
-    print(f"Created {args.output} with {len(codes)} personalized page(s).")
+    pages = (len(codes) + len(placements) - 1) // len(placements)
+    print(f"Created {args.output} with {len(codes)} ballot(s) on {pages} page(s).")
 
 
 if __name__ == "__main__":
