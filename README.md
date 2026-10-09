@@ -19,8 +19,8 @@ The voting admin's CSV has `code`, `used`, and `url` columns. By default, used c
 .venv/bin/program-vote-qr \
   --template program-back.pdf \
   --codes premiere-vote-codes.csv \
-  --placement 250,170,90 \
-  --placement 646,170,90 \
+  --placement 235,170,120 \
+  --placement 631,170,120 \
   --output premiere-program-backs.pdf
 ```
 
@@ -35,11 +35,11 @@ The output contains one copy of the selected template page per group of placemen
 The current San Diego program-back template is a landscape letter page (`792 x 612` points) with two backs side by side. A tested starting layout for that template is:
 
 ```sh
---placement 240,170,110 \
---placement 636,170,110
+--placement 235,170,120 \
+--placement 631,170,120
 ```
 
-That places one 110-point QR in the blank area beside each `Audience Choice` block, with `Ballot NNN` and `Code: XXXXX` below it. At two ballots per sheet, 225 ballots produce 113 pages; the final page has one unused right-hand slot.
+That places one 120-point QR in the blank area beside each `Audience Choice` block, with a small regular-weight `Ballot NNN` line and a larger bold `Code: XXXXX` line below it. At two ballots per sheet, 225 ballots produce 113 pages; the final page has one unused right-hand slot.
 
 ## Verification
 

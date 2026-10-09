@@ -6,8 +6,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 import segno
+
+
+FONT_DIR = Path(__file__).with_name("fonts")
+pdfmetrics.registerFont(TTFont("LeagueSpartan", str(FONT_DIR / "LeagueSpartan-Regular.ttf")))
+pdfmetrics.registerFont(TTFont("LeagueSpartan-Bold", str(FONT_DIR / "LeagueSpartan-Bold.ttf")))
 
 
 @dataclass(frozen=True)
@@ -93,11 +100,12 @@ def qr_overlay(page_width: float, page_height: float, vote: VoteCode, placement:
                 )
 
     if label:
-        font_size = max(6, min(11, size / 10))
-        canvas.setFont("Helvetica-Bold", font_size)
-        canvas.drawCentredString(x + size / 2, y - font_size - 2, f"Ballot {ballot_number:03d}")
-        canvas.setFont("Helvetica", font_size)
-        canvas.drawCentredString(x + size / 2, y - (font_size * 2) - 4, f"Code: {vote.code}")
+        ballot_font_size = max(5, min(7, size / 18))
+        code_font_size = max(8, min(14, size / 8))
+        canvas.setFont("LeagueSpartan", ballot_font_size)
+        canvas.drawCentredString(x + size / 2, y - ballot_font_size - 2, f"Ballot {ballot_number:03d}")
+        canvas.setFont("LeagueSpartan-Bold", code_font_size)
+        canvas.drawCentredString(x + size / 2, y - ballot_font_size - code_font_size - 5, f"Code: {vote.code}")
     canvas.save()
     return output.getvalue()
 
